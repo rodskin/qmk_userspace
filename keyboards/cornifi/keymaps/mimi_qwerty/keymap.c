@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include QMK_KEYBOARD_H
+#include "raw_hid.h"
 
 enum layer_names {
     _BASE,
@@ -21,11 +22,21 @@ enum layer_names {
 #define U_SYM MO(_SYM)
 #define U_FUN MO(_FUN)
 
-#define U_RDO KC_AGIN
-#define U_PST KC_PSTE
-#define U_CPY KC_COPY
-#define U_CUT KC_CUT
-#define U_UND KC_UNDO
+// Linux : raccourcis Ctrl classiques (KC_COPY/KC_PSTE… sont ignorés par la
+// plupart des applications et par tous les terminaux)
+#define U_RDO C(KC_Y)
+#define U_PST C(KC_V)
+#define U_CPY C(KC_C)
+#define U_CUT C(KC_X)
+#define U_UND C(KC_Z)
+
+// Raw HID : la couche et les modificateurs actifs sont envoyés à l'ordinateur
+// (indicateur Waybar, ~/.config/waybar/scripts/cornifi-layer). Message de
+// 32 octets : { RAW_LAYER_MSG, numéro de couche (enum layer_names),
+// modificateurs (get_mods(), octet HID : bits 0-3 Ctrl/Shift/Alt/GUI gauches,
+// bits 4-7 droits), 0… }.
+// L'ordinateur peut aussi envoyer { RAW_LAYER_MSG } pour demander la couche.
+#define RAW_LAYER_MSG 0x4C // 'L'
 
 // Tap Dance
 enum {
@@ -79,15 +90,16 @@ KC_NO,          KC_ALGR,    KC_NO,      KC_NO,      KC_NO,                      
 
     [_ACC] = LAYOUT_split_3x5_3_ex2( // MOUSE
 TD(TD_BOOT),    KC_NO,      KC_NO,      KC_NO,      E_GRV,      KC_NO,          KC_NO,  U_RDO,          U_CIR,      U_GRV,      U_TRM,      U_UND,          \
-A_GRV,          A_CIR,      KC_LCTL,    KC_LSFT,    E_TRM,      KC_NO,          KC_NO,  E_GRV,          E_AIG,      KC_MS_D,    I_CIR,      O_CIR,        \
-KC_NO,          KC_ALGR,    KC_NO,      KC_NO,      E_CIR,                              E_CIR,          E_TRM,      KC_WH_D,    I_TRM,      O_TRM,        \
-                            KC_NO,      KC_NO,      KC_NO,                              KC_BTN2,        KC_BTN1,    KC_BTN3
+A_GRV,          A_CIR,      KC_LCTL,    KC_LSFT,    E_TRM,      KC_NO,          KC_NO,  E_GRV,          E_AIG,      MS_DOWN,    I_CIR,      O_CIR,        \
+KC_NO,          KC_ALGR,    KC_NO,      KC_NO,      E_CIR,                              E_CIR,          E_TRM,      MS_WHLD,    I_TRM,      O_TRM,        \
+                            KC_NO,      KC_NO,      KC_NO,                              MS_BTN2,        MS_BTN1,    MS_BTN3
     ),
 
     [_MEDIA] = LAYOUT_split_3x5_3_ex2( // MEDIA
-TD(TD_BOOT),    KC_NO,      KC_NO,      KC_NO,      KC_NO,      KC_NO,          KC_NO,  RGB_TOG,        RGB_MOD,    RGB_HUI,    RGB_SAI,    RGB_VAI,        \
+// pas de RGB ni de Bluetooth sur le Cornifi : touches RGB_* et OU_AUTO retirées
+TD(TD_BOOT),    KC_NO,      KC_NO,      KC_NO,      KC_NO,      KC_NO,          KC_NO,  KC_NO,          KC_NO,      KC_NO,      KC_NO,      KC_NO,          \
 KC_LGUI,        KC_LALT,    KC_LCTL,    KC_LSFT,    KC_NO,      KC_NO,          KC_NO,  KC_NO,          KC_MPRV,    KC_VOLD,    KC_VOLU,    KC_MNXT,        \
-KC_NO,          KC_ALGR,    KC_NO,      KC_NO,      KC_NO,                              OU_AUTO,        KC_NO,      KC_NO,      KC_NO,      KC_NO,          \
+KC_NO,          KC_ALGR,    KC_NO,      KC_NO,      KC_NO,                              KC_NO,          KC_NO,      KC_NO,      KC_NO,      KC_NO,          \
                             KC_NO,      KC_NO,      KC_NO,                              KC_MSTP,        KC_MPLY,    KC_MUTE
     ),
 
@@ -224,4 +236,46 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
 
     return true;
+}
+
+// Raw HID : couche active -> ordinateur (voir RAW_LAYER_MSG plus haut).
+// L'ordinateur interroge le clavier chaque seconde ; on n'envoie que s'il l'a
+// fait récemment : sans lecteur, raw_hid_send bloquerait jusqu'à 100 ms une
+// fois la file USB pleine (ressenti à chaque changement de couche).
+#define RAW_HOST_TIMEOUT 3000 // ms
+
+static uint32_t raw_host_seen   = 0;
+static bool     raw_host_active = false;
+
+static void send_state(layer_state_t state) {
+    if (!raw_host_active || timer_elapsed32(raw_host_seen) > RAW_HOST_TIMEOUT) {
+        raw_host_active = false;
+        return;
+    }
+    uint8_t data[32] = {RAW_LAYER_MSG, get_highest_layer(state), get_mods()}; // 32 = RAW_EPSIZE (USB)
+    raw_hid_send(data, sizeof(data));
+}
+
+layer_state_t layer_state_set_user(layer_state_t state) {
+    send_state(state);
+    return state;
+}
+
+// appelée en continu : envoie les changements de modificateurs (home row mods
+// maintenus, touches Ctrl/Shift… des couches)
+void housekeeping_task_user(void) {
+    static uint8_t last_mods = 0;
+    uint8_t        mods      = get_mods();
+    if (mods != last_mods) {
+        last_mods = mods;
+        send_state(layer_state);
+    }
+}
+
+void raw_hid_receive(uint8_t *data, uint8_t length) {
+    if (length > 0 && data[0] == RAW_LAYER_MSG) {
+        raw_host_active = true;
+        raw_host_seen   = timer_read32();
+        send_state(layer_state);
+    }
 }
