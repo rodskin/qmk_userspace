@@ -26,13 +26,15 @@ xkb layout, which the accent macros rely on: AltGr + `'` / `` ` `` / `"` /
 
 ### keychron/k3_pro/ansi/rgb: hrm
 
-Keychron K3 Pro (ANSI, RGB, USB `3434:0230`), stock Keychron layout plus the
-same home row mods as `mimi_qwerty`, on both the Mac and Win base layers
-(the side switch picks one):
+Keychron K3 Pro (ANSI, RGB, USB `3434:0230`), stock Keychron Windows layout
+(F1-F12 row, Ctrl / Super / Alt bottom row) in both positions of the Mac/Win
+side switch, which only toggles the home row mods:
 
-- `A S D F` = GUI / Alt / Shift / Ctrl, `J K L ;` = Ctrl / Shift / Alt / GUI
-  (200 ms, `QUICK_TAP_TERM 0`);
-- Caps Lock: tap = Esc, hold = Ctrl (100 ms, like the kanata config of the
+- Win (`HRM_BASE`): same home row mods as `mimi_qwerty`, `A S D F` =
+  GUI / Alt / Shift / Ctrl, `J K L ;` = Ctrl / Shift / Alt / GUI (200 ms,
+  `QUICK_TAP_TERM 0`);
+- Mac (`PLAIN_BASE`): same keys without home row mods;
+- both: Caps Lock: tap = Esc, hold = Ctrl (100 ms, like the kanata config of the
   laptop's built-in keyboard);
 - both Shifts together = Caps Word (there is no Caps Lock anymore);
 - LEDs default to solid white (`RGB_MATRIX_SOLID_COLOR`, saturation 0).
@@ -42,14 +44,16 @@ same home row mods as `mimi_qwerty`, on both the Mac and Win base layers
   brightness, Fn + Tab on/off);
 - on the Fn layers J is a plain `KC_J`: the factory reset combo looks for
   `KC_J` and would not see the `LCTL_T(KC_J)` home row mod;
-- Fn layers (RGB, Bluetooth, media) unchanged. VIA is disabled, so a keymap
+- Fn layers (RGB, Bluetooth, media): Keychron's Windows Fn layer, in both
+  positions. VIA is disabled, so a keymap
   saved earlier with Keychron Launcher cannot override this one.
 - Raw HID reports the active layer and modifiers to the host, same protocol
   as `mimi_qwerty` (Waybar indicator). Keychron's `k3_pro.c` already defines
   `raw_hid_receive` (factory test, Bluetooth module DFU): `rules.mk` renames
   it to `raw_hid_receive_k3pro` when compiling that one file, and the keymap's
-  `raw_hid_receive` forwards every other message to it. Layer numbers:
-  0 MAC_BASE, 1 MAC_FN, 2 WIN_BASE, 3 WIN_FN.
+  `raw_hid_receive` forwards every other message to it. Layer numbers
+  (order fixed by `k3_pro.c`: Mac -> 0, Win -> 2): 0 PLAIN_BASE, 1 PLAIN_FN,
+  2 HRM_BASE, 3 HRM_FN.
 
 ## Cornifi: build and flash (Fedora Atomic)
 
